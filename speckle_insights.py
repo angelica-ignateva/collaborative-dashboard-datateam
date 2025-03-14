@@ -88,8 +88,11 @@ def update_model_selection_by_team(team_selection):
     elif team_selection == "Data":
         filtered_models = [m.name for m in models if m.name.startswith('data')]
 
+    # Remove the prefix from the model names
+    filtered_models = [name.split('/', 1)[1] if '/' in name else name for name in filtered_models]
+
     # Return the updated choices for the model dropdown
-    return gr.Dropdown(choices=filtered_models, label="Select Model")
+    return gr.Dropdown(choices=filtered_models, label="Select Model", value=filtered_models[0] if filtered_models else None)
 
 def get_all_versions_in_project():
     all_versions = []
@@ -113,10 +116,13 @@ def get_all_versions_in_project():
 
 
 def create_viewer_url(model_name):
-    model = next((m for m in project.models.items if m.name == model_name), None)
-    version = client.version.get_versions(model_id=model.id, project_id=project.id, limit=100).items[0]
+    # Add the prefix back to the model name to match the original names in the project
+    model_name_with_prefix = f"residential/{model_name}" if model_name.startswith('shared/') else model_name
+    model = next((m for m in project.models.items if m.name == model_name_with_prefix), None)
+    model_id = model.id
+    version = client.version.get_versions(model_id=model_id, project_id=project_id, limit=100).items[0]
     embed_src = f"https://macad.speckle.xyz/projects/{project_id}/models/{model.id}@{version.id}#embed=%7B%22isEnabled%22%3Atrue%2C%7D"
-    iframe = f'<iframe src="{embed_src}" style="width:100%; height:750px; border:none;"></iframe>'
+    iframe = f'<iframe src="{embed_src}" style="width:100%; height:850px; border:none;"></iframe>'
     return iframe
 
 # Function to update viewer and stats
@@ -151,96 +157,98 @@ def generate_contributor_statistics(all_versions):
     return df
 
 
-def generate_statistics():
-    all_versions = get_all_versions_in_project()
-    model_stats_df = generate_model_statistics()
-    connector_stats_df = generate_connector_statistics(all_versions)
-    contributor_stats_df = generate_contributor_statistics(all_versions)
+# def generate_statistics():
+all_versions = get_all_versions_in_project()
+model_stats_df = generate_model_statistics()
+connector_stats_df = generate_connector_statistics(all_versions)
+contributor_stats_df = generate_contributor_statistics(all_versions)
     
-    return model_stats_df, connector_stats_df, contributor_stats_df
+#     return model_stats_df, connector_stats_df, contributor_stats_df
 
-def create_graphs():
-    models = project.models.items
-    all_versions = get_all_versions_in_project()
+# def create_graphs():
+models = project.models.items
+# Extract models and their commit counts
+model_counts = pd.DataFrame([
+    [m.name, len(client.version.get_versions(model_id=m.id, project_id=project.id, limit=100).items)] for m in models], columns=["modelName", "totalCommits"])
 
+# Define function to categorize models
+def categorize_model(name):
+    if name.startswith("residential"):
+        return "Residential"
+    elif name.startswith("facade"):
+        return "Facade"
+    elif name.startswith("structure"):
+        return "Structure"
+    elif name.startswith("service"):
+        return "Service"
+    elif name.startswith("industrial"):
+        return "Industrial"
+    elif name.startswith("data"):
+        return "Data"
+    else:
+        return "Other"
+
+# Apply categorization
+model_counts["category"] = model_counts["modelName"].apply(categorize_model)
+model_counts["modelName"] = model_counts["modelName"].apply(lambda x: x.split('/', 1)[1] if '/' in x else x)
+
+# Create bar plot grouped by category
+model_graph = px.bar(
+    model_counts, 
+    x="modelName", 
+    y="totalCommits", 
+    color="category",  # Grouped by category
+    color_discrete_map={
+        "Residential": "#338547",
+        "Facade": "#652cb3",
+        "Structure": "#1864b5",
+        "Service": "#ff8800",
+        "Industrial": "#b50709",
+        "Data": "white",         
+        "Other": "gray"
+    }
+)
+
+# Update layout for dark mode
+model_graph.update_layout(
+    height=800,
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    paper_bgcolor='rgb(15, 15, 15)',
+    plot_bgcolor='rgb(15, 15, 15)',
+    font=dict(color='white'),
+    title_font=dict(color='white')
+)
+
+# Connector distribution
+version_frame = pd.DataFrame.from_dict([{"sourceApplication": v.sourceApplication} for v in all_versions])
+apps = version_frame["sourceApplication"].value_counts().reset_index()
+apps.columns = ["app", "count"]
+connector_graph = px.pie(apps, names="app", values="count", hole=0.3, color_discrete_sequence=px.colors.sequential.Emrld)
+connector_graph.update_layout(
+    height = 600,
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    paper_bgcolor='rgb(15, 15, 15)',  # Background color of the entire chart
+    plot_bgcolor='rgb(15, 15, 15)',    # Background color of the plot area
+    font=dict(color='white'),          # Font color for better contrast
+    title_font=dict(color='white'))
+connector_graph.update_traces(textposition='outside', sort = False, pull=[0.1] * len(apps))  # Display values outside bars
+
+# Contributor distribution
+version_user_names = [v.authorUser.name for v in all_versions]
+authors = pd.DataFrame(version_user_names).value_counts().reset_index()
+authors.columns = ["author", "count"]
+contributor_graph = px.pie(authors, names="author", values="count", hole=0.3, color_discrete_sequence=px.colors.sequential.Sunsetdark)
+contributor_graph.update_layout(
+    height = 600,
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    paper_bgcolor='rgb(15, 15, 15)',  # Background color of the entire chart
+    plot_bgcolor='rgb(15, 15, 15)',    # Background color of the plot area
+    font=dict(color='white'),          # Font color for better contrast
+    title_font=dict(color='white'))
     
-    
-    # Extract models and their commit counts
-    model_counts = pd.DataFrame([
-        [m.name, len(client.version.get_versions(model_id=m.id, project_id=project.id, limit=100).items)] for m in models], columns=["modelName", "totalCommits"])
+#     return model_graph, connector_graph, contributor_graph
 
-    # Define function to categorize models
-    def categorize_model(name):
-        if name.startswith("residential"):
-            return "Residential"
-        elif name.startswith("facade"):
-            return "Facade"
-        elif name.startswith("structure"):
-            return "Structure"
-        elif name.startswith("service"):
-            return "Service"
-        elif name.startswith("industrial"):
-            return "Industrial"
-        else:
-            return "Other"
-
-    # Apply categorization
-    model_counts["category"] = model_counts["modelName"].apply(categorize_model)
-
-    # Create bar plot grouped by category
-    model_graph = px.bar(
-        model_counts, 
-        x="modelName", 
-        y="totalCommits", 
-        color="category",  # Grouped by category
-        color_discrete_map={
-            "Residential": "green",
-            "Facade": "purple",
-            "Structure": "blue",
-            "Service": "orange",
-            "Industrial": "red",
-            "Other": "gray"
-        }
-    )
-
-    # Update layout for dark mode
-    model_graph.update_layout(
-        height=600,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-        paper_bgcolor='rgb(15, 15, 15)',
-        plot_bgcolor='rgb(15, 15, 15)',
-        font=dict(color='white'),
-        title_font=dict(color='white')
-    )
-    
-    # Connector distribution
-    version_frame = pd.DataFrame.from_dict([{"sourceApplication": v.sourceApplication} for v in all_versions])
-    apps = version_frame["sourceApplication"].value_counts().reset_index()
-    apps.columns = ["app", "count"]
-    connector_graph = px.pie(apps, names="app", values="count", hole=0.3, color_discrete_sequence=px.colors.sequential.Emrld)
-    connector_graph.update_layout(
-        height = 600,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-        paper_bgcolor='rgb(15, 15, 15)',  # Background color of the entire chart
-        plot_bgcolor='rgb(15, 15, 15)',    # Background color of the plot area
-        font=dict(color='white'),          # Font color for better contrast
-        title_font=dict(color='white'))
-    connector_graph.update_traces(textposition='outside', sort = False, pull=[0.1] * len(apps))  # Display values outside bars
-    
-    # Contributor distribution
-    version_user_names = [v.authorUser.name for v in all_versions]
-    authors = pd.DataFrame(version_user_names).value_counts().reset_index()
-    authors.columns = ["author", "count"]
-    contributor_graph = px.pie(authors, names="author", values="count", hole=0.3, color_discrete_sequence=px.colors.sequential.Sunsetdark)
-    contributor_graph.update_layout(
-        height = 600,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-        paper_bgcolor='rgb(15, 15, 15)',  # Background color of the entire chart
-        plot_bgcolor='rgb(15, 15, 15)',    # Background color of the plot area
-        font=dict(color='white'),          # Font color for better contrast
-        title_font=dict(color='white'))
-    
-    return model_graph, connector_graph, contributor_graph
+# model_graph, connector_graph, contributor_graph = create_graphs()
 
 def create_timeline():
     all_versions = get_all_versions_in_project()
@@ -259,52 +267,64 @@ with gr.Blocks(title="Speckle Stream Activity Dashboard", css=custom_css, js=js_
     with gr.Tab("Speckle Insights"):
         gr.Markdown("# Speckle Stream Activity Dashboard 📈")
         gr.Markdown("### HyperBuilding B Analytics")
-        
         with gr.Row():
-            team_dropdown = gr.Dropdown(choices=["Residential", "Structure", "Service", "Facade", "Industrial", "Data"], label="Select Team",value="Residential")
-            model_dropdown = gr.Dropdown()
-            # version_dropdown = gr.Dropdown(label="Select Version")
+            with gr.Column():
+                viewer_iframe = gr.HTML()
+
+            with gr.Column():
+                team_dropdown = gr.Dropdown(choices=["Residential", "Structure", "Service", "Facade", "Industrial", "Data"], label="Select Team",value="Residential")
+                model_dropdown = gr.Dropdown()
+                # version_dropdown = gr.Dropdown(label="Select Version")
+                connector_stats = gr.Dataframe(connector_stats_df, label="Connector Statistics", datatype=["str", "number"])
+                contributor_stats = gr.Dataframe(contributor_stats_df, label="Contributor Statistics", datatype=["str", "number"])
         
+        # with gr.Row():
+        #     # model_stats = gr.Dataframe(label="Model Statistics", datatype=["str", "number"])
+        #     
+
         with gr.Row():
-            viewer_iframe = gr.HTML()
-        model_stats = gr.Dataframe(label="Model Statistics", datatype=["str", "number"], show_fullscreen_button=True, show_copy_button=True, wrap=True, max_height=10000)
-        
-        with gr.Row():
-            # model_stats = gr.Dataframe(label="Model Statistics", datatype=["str", "number"])
-            connector_stats = gr.Dataframe(label="Connector Statistics", datatype=["str", "number"])
-            contributor_stats = gr.Dataframe(label="Contributor Statistics", datatype=["str", "number"])
+            connector_plot = gr.Plot(connector_graph, container=False, label="Connector Distribution")
+            contributor_plot = gr.Plot(contributor_graph, container=False, label="Contributor Distribution")
 
         
         with gr.Row():
-            model_plot = gr.Plot(container=False, label="Model Commit Distribution")
+            model_plot = gr.Plot(model_graph, container=False, label="Model Commit Distribution")
             
         
         with gr.Row():
             timestamps_frame = create_timeline()
-            timeline_plot = gr.LinePlot(timestamps_frame, x = "date", y = "count")
-        with gr.Row():
-            connector_plot = gr.Plot(container=False, label="Connector Distribution")
-            contributor_plot = gr.Plot(container=False, label="Contributor Distribution")
+            timeline_plot = gr.LinePlot(timestamps_frame, x = "date", y = "count", height=500)
+        
+        
+        model_stats = gr.Dataframe(model_stats_df, label="Model Statistics", datatype=["str", "number"], show_fullscreen_button=True, show_copy_button=True, wrap=True, max_height=10000)
+        
     
       
     # # with gr.Tab("Building Analysis"):
     # #     b_demo.render()
 
-    # Initialize statistics and plots once (as State variables)
-    model_stats_state = gr.State(generate_statistics())
-    model_plot_state = gr.State(create_graphs())
-    timeline_plot_state = gr.State(create_timeline())
+    # # Initialize statistics and plots once (as State variables)
+    # model_stats_state = gr.State(generate_statistics())
+    # model_plot_state = gr.State(create_graphs())
+    # timeline_plot_state = gr.State(create_timeline())
 
     # # Function to set initial values (this ensures they are displayed)
-    def update_static_values():
-        return model_stats_state.value + model_plot_state.value + (timeline_plot_state.value,)
+    # def update_static_values():
+    #     return model_stats_state.value + model_plot_state.value + (timeline_plot_state.value,)
 
-    # Call this function at app startup to set fixed statistics and plots
-    demo.load(fn=update_static_values, outputs=[
-        model_stats, connector_stats, contributor_stats,
-        model_plot, connector_plot, contributor_plot,
-        timeline_plot
-    ])
+    # # Call this function at app startup to set fixed statistics and plots
+    # demo.load(fn=update_static_values, outputs=[
+    #     model_stats, connector_stats, contributor_stats,
+    #     model_plot, connector_plot, contributor_plot,
+    #     timeline_plot
+    # ])
+
+    # Load spekcle viewer
+    def initialize_app():
+        viewer_url = create_viewer_url('residential/shared/unit_exterior_walls')
+        return viewer_url
+
+    demo.load(fn=initialize_app, outputs=[viewer_iframe])
 
 
     # Event handlers
