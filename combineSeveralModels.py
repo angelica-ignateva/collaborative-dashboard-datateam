@@ -12,7 +12,7 @@ from specklepy.core.api.inputs.version_inputs import CreateVersionInput
 # Our MaCAD server!
 server_url = "https://macad.speckle.xyz/"
 # The token for your account. Get it from the Speckle Dashboard > Profile > Acess Tokens
-token = "51d5c2169a0ec28a325fd1d0bf9feecacd81472670"
+token = ""
 # This is the stream you want to federate the branches of. Change it to your studio stream! 
 stream_url = "https://macad.speckle.xyz/projects/28a211b286"
 # The name of the branch you want to push to. The data inside it will be ignored on further pushes.

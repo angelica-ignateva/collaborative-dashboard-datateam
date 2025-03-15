@@ -8,82 +8,113 @@ from specklepy.api import operations
 from config import speckle_token
 # import matplotlib.pyplot as plt
 
-# Project ID
-# project_id = "28a211b286" # hyperB project
-# project_id = "d3e86261bf" #Farnsworth House
-# model_id = "57acc8a5fa"
-
-
-project_id = "daeb18ed0a" #Kunshaus 
-model_id = "aab87740df"
+# # Default project and model IDs
+# project_id = "d3e86261bf"  # Default to Farnsworth House
+# model_id = "3a724a3d22"
 
 # Initialize Speckle client and credentials
 speckle_server = "macad.speckle.xyz"
 client = SpeckleClient(host=speckle_server)
 account = get_account_from_token(speckle_token, speckle_server)
 client.authenticate_with_account(account)
-transport = ServerTransport(project_id, client)
+
+model_name = 'kunsthaus zurich'
+project_id = "daeb18ed0a"
+model_id = "aab87740df"
+
+def set_model_data(model_name):
+    model_map = {
+        'farnsworth house': ("d3e86261bf", "3a724a3d22"),
+        'kunsthaus zurich': ("daeb18ed0a", "aab87740df")
+    }
+    
+    if model_name in model_map:
+        project_id, model_id = model_map[model_name]
+    else:
+        # Handle invalid model_name
+        raise ValueError(f"Invalid model name: {model_name}. Valid options are: {list(model_map.keys())}")
+    
+    return project_id, model_id
+
+# def set_model_data(model_name):
+#     global project_id, model_id
+#     if model_name == 'farnsworth house': 
+#         project_id = "d3e86261bf", 
+#         model_id = "3a724a3d22",
+#     if model_name == 'kunsthaus zurich':
+#         project_id = "daeb18ed0a", 
+#         model_id = "aab87740df",
+    
+#     return project_id, model_id
 
 
-def get_project_data():
-    project = client.project.get_with_models(project_id=project_id, models_limit=100)
-    return project
-
-def update_model_selection(project_data):
-    models = project_data.models.items
-    return gr.Dropdown(choices=[m.name for m in models], label="Select Model")
-
-def create_viewer_url(project_data):
-
-    selected_model = client.model.get(model_id, project_id)
-    versions = client.version.get_versions(model_id=selected_model.id, project_id=project_data.id, limit=100).items
+def create_viewer_url(project_id, model_id):
+    # print(f"Creating viewer URL for project_id: {project_id}, model_id: {model_id}")
+    versions = client.version.get_versions(model_id=model_id, project_id=project_id, limit=100).items
+    if not versions:
+        return "<p>Error: No versions found for this model.</p>"
     selected_version = versions[0]
     
-    embed_src = f"https://macad.speckle.xyz/projects/{project_data.id}/models/{selected_model.id}@{selected_version.id}#embed=%7B%22isEnabled%22%3Atrue%2C%7D"
+    embed_src = f"https://macad.speckle.xyz/projects/{project_id}/models/{model_id}@{selected_version.id}#embed=%7B%22isEnabled%22%3Atrue%2C%7D"
     return embed_src
 
-my_model = client.model.get(model_id, project_id)
-versions = client.version.get_versions(model_id, project_id)
-referenced_obj_id = versions.items[0].referencedObject
-objData = operations.receive(referenced_obj_id, transport)
+def get_model_data(model_name):
+    
+    # Set the global project_id and model_id based on selection
+    project_id, model_id = set_model_data(model_name)
 
-child_obj = objData
-# child_obj = objData['@Building']['@{0}'][0]
-# dynamic_properties = child_obj.get_dynamic_member_names()
+    # Get version details
+    versions = client.version.get_versions(model_id=model_id, project_id=project_id, limit=100).items
+    selected_version = versions[0]
+    referenced_obj_id = selected_version.referencedObject
+    
+    # Create a fresh transport for each request
+    transport = ServerTransport(project_id, client)
+    
+    # Get object data
+    objData = operations.receive(referenced_obj_id, transport)
+    
+    return objData
 
-# obj = {}
-# for p in dynamic_properties:
-#     obj[p] = child_obj[p]
 
-
-data = {"element": [], "volume": [], "mass": [], "embodied carbon": []}
-
-# get the attributes on the level object
-names = child_obj.get_dynamic_member_names()
-# iterate through and find the elements with a `volume` attribute
-for name in names:
-    prop = child_obj[name]
-    if isinstance(prop, list):
-            for p in prop:
-                volume = 0
-                mass = 0
-                carbon = 0
-                if name == '@Windows':
-                    volume += p.area * 70
-                    mass += p.area * 70 * p["@density"]
-                    carbon += p.area * 70 * p["@density"] * p["@embodied_carbon"]
-                else:
-                    volume += p.volume
-                    mass += p.volume * p["@density"]
-                    carbon += p.volume * p["@density"] * p["@embodied_carbon"]
-    else:
-        volume = prop.volume
-        mass = prop.volume * prop["@density"]
-        carbon = prop.volume * prop["@density"] * prop["@embodied_carbon"]
-    data["volume"].append(volume)
-    data["mass"].append(mass)
-    data["embodied carbon"].append(carbon)
-    data["element"].append(name[1:]) # removing the prepending `@`
+def analyze_building_data(objData):
+    child_obj = objData
+    data = {"element": [], "volume": [], "mass": [], "embodied carbon": []}
+    
+    # get the attributes on the level object
+    names = child_obj.get_dynamic_member_names()
+    # iterate through and find the elements with a `volume` attribute
+    for name in names:
+        prop = child_obj[name]
+        if isinstance(prop, list):
+                for p in prop:
+                    volume = 0
+                    mass = 0
+                    carbon = 0
+                    if name == '@Windows':
+                        volume += p.area * 70
+                        mass += p.area * 70 * p["@density"]
+                        carbon += p.area * 70 * p["@density"] * p["@embodied_carbon"]
+                    else:
+                        volume += p.volume
+                        mass += p.volume * p["@density"]
+                        carbon += p.volume * p["@density"] * p["@embodied_carbon"]
+        else:
+            volume = prop.volume
+            mass = prop.volume * prop["@density"]
+            carbon = prop.volume * prop["@density"] * prop["@embodied_carbon"]
+        data["volume"].append(volume)
+        data["mass"].append(mass)
+        data["embodied carbon"].append(carbon)
+        data["element"].append(name[1:])  # removing the prepending `@`
+    
+    vertices = []
+    for name in names:
+        for element in child_obj[name]:
+            for p in element.Vertices:
+                vertices.append({"x": p.x, "y": p.y, "z": p.z, "element": name[1:]})
+    
+    return data, vertices
 
 
 def generate_graphs(data):
@@ -91,113 +122,138 @@ def generate_graphs(data):
     df = pd.DataFrame(data)
     
     # Creating figures
-    volumes_fig = px.pie(df, values="volume", names="element", color="element", title="Volumes of Elements (m3)")
+    volumes_fig = px.pie(df, values="volume", names="element", color="element", 
+                         hole=0.3, color_discrete_sequence=px.colors.sequential.Emrld)
     volumes_fig.update_layout(
-        paper_bgcolor='rgb(50, 50, 50)',  # Graphite background color
-        plot_bgcolor='rgb(50, 50, 50)',   # Graphite background color for the plot area
+        height = 600,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        paper_bgcolor='rgb(15, 15, 15)',  # Graphite background color
+        plot_bgcolor='rgb(15, 15, 15)',   # Graphite background color for the plot area
         font=dict(color='white'),          # Font color for better contrast
         title_font=dict(color='white')     # Title font color
     )
 
-    carbon_bar_fig = px.bar(df, x="element", y="embodied carbon", color="element", title="Embodied Carbon by Element (kgC02)")
+    carbon_bar_fig = px.bar(df, x="element", y="embodied carbon", color="element",
+                            color_discrete_sequence=px.colors.sequential.Emrld)
     carbon_bar_fig.update_layout(
-        paper_bgcolor='rgb(50, 50, 50)',  # Graphite background color
-        plot_bgcolor='rgb(50, 50, 50)',   # Graphite background color for the plot area
+        height = 600,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        paper_bgcolor='rgb(15, 15, 15)',  # Graphite background color
+        plot_bgcolor='rgb(15, 15, 15)',   # Graphite background color for the plot area
         font=dict(color='white'),          # Font color for better contrast
         title_font=dict(color='white')     # Title font color
     )
-    carbon_pie_fig = px.pie(df, values="embodied carbon", names="element", color="element", title="Embodied Carbon by Element (kgC02)")
+    carbon_pie_fig = px.pie(df, values="embodied carbon", names="element", color="element", 
+                            hole=0.3, color_discrete_sequence=px.colors.sequential.Emrld)
     carbon_pie_fig.update_layout(
-        paper_bgcolor='rgb(50, 50, 50)',  # Graphite background color
-        plot_bgcolor='rgb(50, 50, 50)',   # Graphite background color for the plot area
+        height = 600,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        paper_bgcolor='rgb(15, 15, 15)',  # Graphite background color
+        plot_bgcolor='rgb(15, 15, 15)',   # Graphite background color for the plot area
         font=dict(color='white'),          # Font color for better contrast
         title_font=dict(color='white')     # Title font color
     )
     return volumes_fig, carbon_bar_fig, carbon_pie_fig
 
-vertices = []
-
-for name in names:
-    for element in child_obj[name]:
-        for p in element.Vertices:
-            vertices.append({"x": p.x, "y": p.y, "z": p.z, "element": name[1:]})
-
 
 def generate_scatterplot(vertices):
     fig = px.scatter_3d(
-    vertices,
-    x="x",
-    y="y",
-    z="z",
-    color="element",
-    opacity=0.7,
-    title="Element Vertices (m)",
-)
+        vertices,
+        x="x",
+        y="y",
+        z="z",
+        color="element",
+        opacity=0.7,
+        title="Element Vertices (m)",
+        color_discrete_sequence=px.colors.qualitative.Set2,
+    )
+
+    fig.update_traces(marker=dict(size=4))
+    
     fig.update_layout(
-        paper_bgcolor='rgb(50, 50, 50)',  # Graphite background color
-        plot_bgcolor='rgb(50, 50, 50)',   # Graphite background color for the plot area
-        font=dict(color='white'),          # Font color for better contrast
+        paper_bgcolor='rgb(15, 15, 15)',   # Graphite background color
+        plot_bgcolor='rgb(15, 15, 15)',    # Graphite background color for the plot area
+        scene=dict(
+            xaxis=dict(
+                backgroundcolor='rgb(30, 30, 30)',  # Dark background for the cube
+                gridcolor='white',                  # White grid lines
+                showbackground=True,
+                zerolinecolor='white',
+            ),
+            yaxis=dict(
+                backgroundcolor='rgb(30, 30, 30)',  # Dark background for the cube
+                gridcolor='white',                  # White grid lines
+                showbackground=True,
+                zerolinecolor='white',
+            ),
+            zaxis=dict(
+                backgroundcolor='rgb(30, 30, 30)',  # Dark background for the cube
+                gridcolor='white',                  # White grid lines
+                showbackground=True,
+                zerolinecolor='white',
+            ),
+        ),
+        font=dict(color='white'),           # Font color for better contrast
         title_font=dict(color='white'),     # Title font color
         height=1000,
         legend=dict(
-        x=0,   # Move legend to the left
-        y=1,   # Position it at the top
-        xanchor='left', 
-        yanchor='top',
-        bgcolor='rgba(0,0,0,0)',  # Optional: Transparent background
-        font=dict(color='white')   # Optional: Ensure legend text is visible
+            x=0,                            # Move legend to the left
+            y=1,                            # Position it at the top
+            xanchor='left', 
+            yanchor='top',
+            bgcolor='rgba(0,0,0,0)',        # Transparent background
+            font=dict(color='white')        # Ensure legend text is visible
         )
     )
     return fig
     
-graphs = generate_graphs(data)
-scatter_plot = generate_scatterplot(vertices)
+def update_all(model_name):
+    project_id, model_id = set_model_data(model_name)
+    objData = get_model_data(model_name)
+    data, vertices = analyze_building_data(objData)
+    graphs = generate_graphs(data)
+    scatter_plot = generate_scatterplot(vertices)
+    viewer_url = create_viewer_url(project_id, model_id)
+    
+    return f'<iframe src="{viewer_url}" style="width:100%; height:750px; border:none;"></iframe>', graphs[0], graphs[2], graphs[1], scatter_plot
+
 
 # Create Gradio interface
-with gr.Blocks(title="Building Analysis", fill_width=True) as demo:
-    gr.Markdown("# Building Analysis Dashboard 📈")
-    gr.Markdown("## Building Analytics")
-    
-    project_data = get_project_data()
-    model_name="kunshaus zurich"
+with gr.Blocks(title="Building Analysis") as demo:
+    gr.Markdown("## Building CO₂ Analysis Dashboard 📈")
     
     with gr.Row():
-        model_dropdown = gr.Dropdown(value=model_name, label="Select Model", allow_custom_value=True)
+        model_dropdown = gr.Dropdown(value='kunsthaus zurich', label="Select Model", choices = ['farnsworth house', 'kunsthaus zurich'], allow_custom_value=True)
     with gr.Row(equal_height=True):
         viewer_iframe = gr.HTML()
         
 
+    with gr.Row():
+            gr.Markdown("## Volume Distribution (m³)", container=True)
+            gr.Markdown("## CO2 Distribution (kgC0₂)", container=True)
+    with gr.Row():
+        volume_pie = gr.Plot(container=False, show_label=False)
+        carbon_pie = gr.Plot(container=False, show_label=False)
+    
+    carbon_bar = gr.Plot(container=False, show_label=False)
     
     with gr.Row():
-            gr.Plot(value=graphs[0])
-            gr.Plot(value=graphs[2])
-    gr.Plot(value=graphs[1])
-    with gr.Row():
-        gr.Plot(value=scatter_plot)
+        scatter = gr.Plot(container=False, show_label=False)
     
 
     # Event handlers
 
-    # Load the first model, first version, and version details when the app starts
-    def initialize_app():
-        viewer_url = create_viewer_url(project_data)
-        return f'<iframe src="{viewer_url}" style="width:100%; height:900px; border:none;"></iframe>'
-
-
     demo.load(
-        fn=initialize_app,
-        outputs=[viewer_iframe]
-)
-
-# model_dropdown.change(
-#     fn=lambda x: update_version_selection(x, project_data),
-#     inputs=model_dropdown,
-# )
-
-def update_viewer_and_stats():
-    viewer_url = create_viewer_url(project_data)
-    return f'<iframe src="{viewer_url}" style="width:100%; height:900px; border:none;"></iframe>'
-
+        fn=update_all,
+        inputs=model_dropdown,
+        outputs=[viewer_iframe, volume_pie, carbon_pie, carbon_bar, scatter]
+    )
+    
+    model_dropdown.change(
+        fn=update_all,
+        inputs=model_dropdown,
+        outputs=[viewer_iframe, volume_pie, carbon_pie, carbon_bar, scatter]
+    )
 
 demo.launch()
 

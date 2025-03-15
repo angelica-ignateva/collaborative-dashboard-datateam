@@ -17,7 +17,7 @@ from specklepy.objects import Base
 # model_id = "aab87740df"
 
 project_id = "d3e86261bf" #Farnsworth House
-model_id = "cd2eb6d0cc"
+model_id = "3a724a3d22"
 # model_id = "cd2eb6d0cc"
 
 # Set up authentication and connection to server
@@ -46,16 +46,14 @@ objData = operations.receive(referenced_obj_id, transport)
 # operatons.serialize
 print("Got the data!")
 
-# speckle_object = objData["@Building"]
+speckle_object = objData["@Building"]
 
-# child_obj = speckle_object["@{0}"][0]
+child_obj = speckle_object["@{0}"][0]
 
-child_obj = objData
+# child_obj = objData
 
 print("Received Base object")
 
-
-# child_obj = objData
 
 # all_properties = child_obj.get_member_names()
 # typed_properties = child_obj.get_typed_member_names()
@@ -108,37 +106,37 @@ CARBON_MAPPING = {
 # first, get all the attribute names
 names = child_obj.get_dynamic_member_names()
 # then iterate through them to check if they exist in our mapping
-# for name in names:
-#     if name not in MATERIALS_MAPPING.keys():
-#         break
-#     # if they do, use this class method to get the class and init it
-#     material = MATERIALS_MAPPING[name]
-#     density = DENSITY_MAPPING[name]
-#     carbon = CARBON_MAPPING[name]
-#     # now we can add a `@material` attribute dynamically to each object.
-#     # note that we're making it detachable with the `@`
-#     prop = child_obj[name]
+for name in names:
+    if name not in MATERIALS_MAPPING.keys():
+        break
+    # if they do, use this class method to get the class and init it
+    material = MATERIALS_MAPPING[name]
+    density = DENSITY_MAPPING[name]
+    carbon = CARBON_MAPPING[name]
+    # now we can add a `@material` attribute dynamically to each object.
+    # note that we're making it detachable with the `@`
+    prop = child_obj[name]
     
-#     if isinstance(prop, list):
-#         for item in prop:
-#             item["@material"] = material
-#             item["@density"] = density
-#             item["@embodied_carbon"] = carbon
-#     else:
-#         prop["@material"] = material
-#         prop["@density"] = density
-#         prop["@embodied_carbon"] = carbon
+    if isinstance(prop, list):
+        for item in prop:
+            item["@material"] = material
+            item["@density"] = density
+            item["@embodied_carbon"] = carbon
+    else:
+        prop["@material"] = material
+        prop["@density"] = density
+        prop["@embodied_carbon"] = carbon
 
-# print("Properties assigned")
+print("Properties assigned")
 
-# # Send the updated object back to the server
-# send_transport = ServerTransport(project_id, client) #sending to a different project/model
-# hash = operations.send(base=child_obj, transports=[send_transport])
+# Send the updated object back to the server
+send_transport = ServerTransport(project_id, client) #sending to a different project/model
+hash = operations.send(base=child_obj, transports=[send_transport])
 
-# # Create the actual commit that references this object
-# version_data = CreateVersionInput(objectId=hash, modelId=model_id, projectId=project_id, message = "properties assigned (density & embodied carbon)", sourceApplication = "Python")
-# client.version.create(version_data)
-# print("New version was sent!")
+# Create the actual commit that references this object
+version_data = CreateVersionInput(objectId=hash, modelId=model_id, projectId=project_id, message = "properties assigned (density & embodied carbon)", sourceApplication = "Python")
+client.version.create(version_data)
+print("New version was sent!")
 
 
 
