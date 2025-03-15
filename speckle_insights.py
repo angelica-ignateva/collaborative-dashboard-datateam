@@ -5,6 +5,7 @@ from specklepy.api.client import SpeckleClient
 from specklepy.api.credentials import get_account_from_token
 from config import speckle_token
 
+from residential_page import r_demo
 # from gradio_page import b_demo
 # from space_calculator import sc_demo
 
@@ -73,7 +74,6 @@ project = client.project.get_with_models(project_id=project_id, models_limit=100
 # Add this function to filter models by team selection
 def update_model_selection_by_team(team_selection):
     models = project.models.items
-    filtered_models = []
 
     if team_selection == "Residential":
         filtered_models = [m.name for m in models if m.name.startswith('residential')]
@@ -88,11 +88,8 @@ def update_model_selection_by_team(team_selection):
     elif team_selection == "Data":
         filtered_models = [m.name for m in models if m.name.startswith('data')]
 
-    # Remove the prefix from the model names
-    filtered_models = [name.split('/', 1)[1] if '/' in name else name for name in filtered_models]
-
-    # Return the updated choices for the model dropdown
     return gr.Dropdown(choices=filtered_models, label="Select Model", value=filtered_models[0] if filtered_models else None)
+
 
 def get_all_versions_in_project():
     all_versions = []
@@ -115,31 +112,26 @@ def get_all_versions_in_project():
 #     return [version_name(version) for version in versions]
 
 
-def create_viewer_url(model_name):
-    # Add the prefix back to the model name to match the original names in the project
-    model_name_with_prefix = f"residential/{model_name}" if model_name.startswith('shared/') else model_name
-    model = next((m for m in project.models.items if m.name == model_name_with_prefix), None)
-    model_id = model.id
-    version = client.version.get_versions(model_id=model_id, project_id=project_id, limit=100).items[0]
-    embed_src = f"https://macad.speckle.xyz/projects/{project_id}/models/{model.id}@{version.id}#embed=%7B%22isEnabled%22%3Atrue%2C%7D"
-    iframe = f'<iframe src="{embed_src}" style="width:100%; height:850px; border:none;"></iframe>'
-    return iframe
-
 # Function to update viewer and stats
-def update_viewer_and_stats(model_name):
+def create_viewer_url(model_name):
+    # Find the model in the project
     model = next((m for m in project.models.items if m.name == model_name), None)
     if model:
-        versions = client.version.get_versions(model_id=model.id, project_id=project.id, limit=100).items
+        versions = client.version.get_versions(model_id=model.id, project_id=project_id, limit=1).items
         if versions:
             version = versions[0]
-            viewer_url = create_viewer_url(model.id, version.id)
-            return viewer_url
-    return "No model or version found."
+            embed_src = f"https://macad.speckle.xyz/projects/{project_id}/models/{model.id}@{version.id}#embed=%7B%22isEnabled%22%3Atrue%2C%7D"
+            return f'<iframe src="{embed_src}" style="width:100%; height:850px; border:none;"></iframe>'
+        else:
+            return "No versions found for this model."
+    else:
+        return "Model not found."
 
 def generate_model_statistics():
     models = project.models.items
     data = [{"Model Name": m.name, "Total Commits": len(client.version.get_versions(model_id=m.id, project_id=project.id, limit=100).items)} for m in models]
     df = pd.DataFrame(data)
+    df = df.sort_values(by="Model Name")
     return df
 
 def generate_connector_statistics(all_versions):
@@ -189,7 +181,7 @@ def categorize_model(name):
         return "Other"
 
 # Apply categorization
-model_counts["category"] = model_counts["modelName"].apply(categorize_model)
+model_counts["team"] = model_counts["modelName"].apply(categorize_model)
 model_counts["modelName"] = model_counts["modelName"].apply(lambda x: x.split('/', 1)[1] if '/' in x else x)
 
 # Create bar plot grouped by category
@@ -197,7 +189,7 @@ model_graph = px.bar(
     model_counts, 
     x="modelName", 
     y="totalCommits", 
-    color="category",  # Grouped by category
+    color="team",  # Grouped by category
     color_discrete_map={
         "Residential": "#338547",
         "Facade": "#652cb3",
@@ -250,6 +242,46 @@ contributor_graph.update_layout(
 
 # model_graph, connector_graph, contributor_graph = create_graphs()
 
+# Aggregate commits per team
+team_commit_counts = model_counts.groupby("team")["totalCommits"].sum().reset_index()
+custom_order = ['Data', 'Residential', 'Service', 'Structure', 'Industrial', 'Facade', 'Others']
+
+# Convert 'team' to a categorical type with the custom order
+team_commit_counts['team'] = pd.Categorical(
+    team_commit_counts['team'], 
+    categories=custom_order, 
+    ordered=True
+)
+
+# Sort the DataFrame by the 'team' column
+team_commit_counts = team_commit_counts.sort_values('team')
+
+team_graph = px.bar(
+    team_commit_counts, 
+    x="team", 
+    y="totalCommits", 
+    color="team", 
+    title="Total Commits per Team",
+    color_discrete_map={
+        "Residential": "#338547",
+        "Facade": "#652cb3",
+        "Structure": "#1864b5",
+        "Service": "#ff8800",
+        "Industrial": "#b50709",
+        "Data": "white",         
+        "Other": "gray"
+    }
+)
+
+# Update layout for dark mode
+team_graph.update_layout(
+    height=600,
+    paper_bgcolor='rgb(15, 15, 15)',
+    plot_bgcolor='rgb(15, 15, 15)',
+    font=dict(color='white'),
+    title_font=dict(color='white')
+)
+
 def create_timeline():
     all_versions = get_all_versions_in_project()
     timestamps = [version.createdAt.date() for version in all_versions]
@@ -267,57 +299,53 @@ with gr.Blocks(title="Speckle Stream Activity Dashboard", css=custom_css, js=js_
     with gr.Tab("Speckle Insights"):
         gr.Markdown("# Speckle Stream Activity Dashboard 📈")
         gr.Markdown("### HyperBuilding B Analytics")
+        gr.Markdown("# Team Models Analysis", container=True)
         with gr.Row():
-            with gr.Column():
+            with gr.Column(scale=2):
                 viewer_iframe = gr.HTML()
 
             with gr.Column():
+                models_res = [item for item in project.models.items if item.name.startswith('residential/')]
+                models_name_res = [m.name for m in models_res]
+                models_name_res = [name.split('/', 1)[1] if '/' in name else name for name in models_name_res]
                 team_dropdown = gr.Dropdown(choices=["Residential", "Structure", "Service", "Facade", "Industrial", "Data"], label="Select Team",value="Residential")
-                model_dropdown = gr.Dropdown()
+                model_dropdown = gr.Dropdown(choices=models_name_res, label="Select Model")
                 # version_dropdown = gr.Dropdown(label="Select Version")
-                connector_stats = gr.Dataframe(connector_stats_df, label="Connector Statistics", datatype=["str", "number"])
-                contributor_stats = gr.Dataframe(contributor_stats_df, label="Contributor Statistics", datatype=["str", "number"])
+                
         
         # with gr.Row():
         #     # model_stats = gr.Dataframe(label="Model Statistics", datatype=["str", "number"])
-        #     
-
+        #   
+        gr.Markdown("#", height=50)  
+        with gr.Row():
+            gr.Markdown("# Application Usage", container=True)
+            gr.Markdown("# Contributor Distribution", container=True)
         with gr.Row():
             connector_plot = gr.Plot(connector_graph, container=False, label="Connector Distribution")
             contributor_plot = gr.Plot(contributor_graph, container=False, label="Contributor Distribution")
 
         
-        with gr.Row():
-            model_plot = gr.Plot(model_graph, container=False, label="Model Commit Distribution")
+        
+        model_plot = gr.Plot(model_graph, container=False, label="Model Commit Distribution")
+        team_plot = gr.Plot(team_graph, container=False, label="Team Commit Distribution")
             
         
         with gr.Row():
             timestamps_frame = create_timeline()
-            timeline_plot = gr.LinePlot(timestamps_frame, x = "date", y = "count", height=500)
+            timeline_plot = gr.LinePlot(timestamps_frame, x = "date", y = "count", height=400)
         
-        
-        model_stats = gr.Dataframe(model_stats_df, label="Model Statistics", datatype=["str", "number"], show_fullscreen_button=True, show_copy_button=True, wrap=True, max_height=10000)
-        
+        with gr.Row(equal_height=True):
+            with gr.Column():
+                model_stats = gr.Dataframe(model_stats_df, label="Model Statistics", datatype=["str", "number"], show_fullscreen_button=True, show_copy_button=True, wrap=True, max_height=1000)
+            with gr.Column():
+                connector_stats = gr.Dataframe(connector_stats_df, label="Connector Statistics", datatype=["str", "number"])
+                contributor_stats = gr.Dataframe(contributor_stats_df, label="Contributor Statistics", datatype=["str", "number"])
     
-      
+    with gr.Tab("Residential Team"):
+        r_demo.render()
+        
     # # with gr.Tab("Building Analysis"):
     # #     b_demo.render()
-
-    # # Initialize statistics and plots once (as State variables)
-    # model_stats_state = gr.State(generate_statistics())
-    # model_plot_state = gr.State(create_graphs())
-    # timeline_plot_state = gr.State(create_timeline())
-
-    # # Function to set initial values (this ensures they are displayed)
-    # def update_static_values():
-    #     return model_stats_state.value + model_plot_state.value + (timeline_plot_state.value,)
-
-    # # Call this function at app startup to set fixed statistics and plots
-    # demo.load(fn=update_static_values, outputs=[
-    #     model_stats, connector_stats, contributor_stats,
-    #     model_plot, connector_plot, contributor_plot,
-    #     timeline_plot
-    # ])
 
     # Load spekcle viewer
     def initialize_app():
@@ -331,12 +359,12 @@ with gr.Blocks(title="Speckle Stream Activity Dashboard", css=custom_css, js=js_
     team_dropdown.change(
         fn=update_model_selection_by_team,
         inputs=team_dropdown,
-        outputs=model_dropdown
+        outputs=[model_dropdown]
     )
 
     model_dropdown.change(
         fn=create_viewer_url,
-        inputs=model_dropdown,
+        inputs=[model_dropdown],
         outputs=viewer_iframe
     )
 

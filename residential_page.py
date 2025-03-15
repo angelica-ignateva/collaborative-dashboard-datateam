@@ -133,13 +133,20 @@ def update_dataframe():
 
 df = update_dataframe()
 
+def highlight_last_row(s):
+    color = 'rgba(73, 191, 102, 0.1)'  # Light blue with 50% transparency
+    return [f'background-color: {color}' if s.name == df.index[-1] else '' for _ in s]
+
+df = df.style.apply(highlight_last_row, axis=1) # Apply the highlighting
+
 # Function to update pie charts
 def update_pie_charts():
     df = update_dataframe()
+    styler = df.style.apply(highlight_last_row, axis=1) # Apply the highlighting
     pie1 = plot_pie_chart(df['Unit type'].tolist()[:-2], df['Updated quantity (u)'].tolist()[:-2])
     pie2 = plot_pie_chart(df['Unit type'].tolist()[:-2], df['Updated Area (m2)'].tolist()[:-2])
     pie3 = plot_pie_chart(df['Unit type'].tolist()[:-2], df['Updated Population'].tolist()[:-2])
-    return df, pie1, pie2, pie3
+    return styler, pie1, pie2, pie3
 
 df = update_pie_charts()[0]
 pie1 = update_pie_charts()[1]
@@ -197,6 +204,7 @@ function refresh() {
 }
 """
 
+
 # Create the interface
 with gr.Blocks(css=custom_css, js=js_func, theme=gr.themes.Default(primary_hue="indigo", text_size="lg"), fill_width=True) as r_demo:
 
@@ -211,9 +219,9 @@ with gr.Blocks(css=custom_css, js=js_func, theme=gr.themes.Default(primary_hue="
 
     gr.Markdown("#", height=50)
     gr.Markdown("# Data", container=True)            
-    data = gr.DataFrame(value=df, max_height=10000, label="Residential Team Metrics", interactive=False, show_fullscreen_button = True, every=1)
+    data = gr.DataFrame(value=df, max_height=10000, label="Residential Team Metrics", interactive=False, show_fullscreen_button = True)
 
-     # Button to update the DataFrame manually
+    # Button to update the DataFrame manually
     update_button = gr.Button("Update Data & Pie Charts")
     
 
@@ -241,7 +249,7 @@ with gr.Blocks(css=custom_css, js=js_func, theme=gr.themes.Default(primary_hue="
         with gr.Column():
             viewer_iframe_views = gr.HTML()
             gr.Image(value="residential_view_legend.jpg", show_label=False, container=False,
-                     show_fullscreen_button=False, show_download_button=False)
+                    show_fullscreen_button=False, show_download_button=False)
             
         with gr.Column():
             with gr.Column():
@@ -258,7 +266,7 @@ with gr.Blocks(css=custom_css, js=js_func, theme=gr.themes.Default(primary_hue="
         with gr.Column():
             viewer_iframe_solar = gr.HTML()
             gr.Image(value="residential_solar_legend.jpg", show_label=False, container=False,
-                     show_fullscreen_button=False, show_download_button=False)
+                    show_fullscreen_button=False, show_download_button=False)
 
         with gr.Column():
             value5 = gr.Number(label='High daylight factor (%)', value=67, show_label=True)
@@ -298,7 +306,7 @@ with gr.Blocks(css=custom_css, js=js_func, theme=gr.themes.Default(primary_hue="
     model_dropdown.change(fn=handle_model_change, inputs=model_dropdown, outputs=[viewer_iframe, version_text])
 
     
-r_demo.launch()
+# r_demo.launch()
 
 # gradio residential_page.py
 

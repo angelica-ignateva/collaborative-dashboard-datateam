@@ -1,4 +1,4 @@
 gradio
 pandas
+plotly.express
 specklepy
-plotly
